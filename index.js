@@ -1,6 +1,7 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const fs = require("fs");
+const path = require("path");
 const puppeteer = require("puppeteer-core");
 const { google } = require("googleapis");
 
@@ -43,9 +44,15 @@ async function appendToSheet(data) {
 /* =========================
    INVOICE GENERATOR
 ========================= */
+function launchOptions() {
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        return { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH };
+    }
+    return { channel: "chrome" };
+}
 
 async function generateInvoice(data) {
-    const browser = await puppeteer.launch();
+    const browser = await puppeteer.launch({ channel: "chrome" });
     const page = await browser.newPage();
 
     let html = fs.readFileSync("./invoice.html", "utf8");
@@ -60,7 +67,12 @@ async function generateInvoice(data) {
 
     await page.setContent(html);
 
-    const filePath = `./invoices/invoice_${Date.now()}.pdf`;
+    const invoicesDir = path.join(__dirname, "invoices");
+    fs.mkdirSync(invoicesDir, { recursive: true });
+    const filePath = path.join(
+        invoicesDir,
+        `invoice_${Date.now()}.pdf`,
+    );
 
     await page.pdf({
         path: filePath,
@@ -93,8 +105,8 @@ async function handleBooking(message) {
     console.log("Invoice created:", invoicePath);
 
     // 2. Save to Google Sheets
-    await appendToSheet(data);
-    console.log("Saved to Google Sheets ✅");
+    // await appendToSheet(data);
+    // console.log("Saved to Google Sheets ✅");
 
     // 3. (Later) send back via WhatsApp API
 }

@@ -44,11 +44,10 @@ async function appendToSheet(data) {
 /* =========================
    INVOICE GENERATOR
 ========================= */
-function launchOptions() {
-    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-        return { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH };
-    }
-    return { channel: "chrome" };
+
+/** Escape `$` so String#replaceAll replacement strings stay literal. */
+function forReplace(value) {
+    return String(value ?? "").replace(/\$/g, "$$");
 }
 
 async function generateInvoice(data) {
@@ -57,22 +56,24 @@ async function generateInvoice(data) {
 
     let html = fs.readFileSync("./invoice.html", "utf8");
 
+    const amountDisplay =
+        typeof data.amount === "number"
+            ? data.amount.toLocaleString("en-NG")
+            : forReplace(data.amount);
+
     html = html
-        .replace("{{name}}", data.name)
-        .replace("{{phone}}", data.phone)
-        .replace("{{apartment}}", data.apartment)
-        .replace("{{checkIn}}", data.checkIn)
-        .replace("{{checkOut}}", data.checkOut)
-        .replace("{{amount}}", data.amount);
+        .replaceAll("{{name}}", forReplace(data.name))
+        .replaceAll("{{phone}}", forReplace(data.phone))
+        .replaceAll("{{apartment}}", forReplace(data.apartment))
+        .replaceAll("{{checkIn}}", forReplace(data.checkIn))
+        .replaceAll("{{checkOut}}", forReplace(data.checkOut))
+        .replaceAll("{{amount}}", amountDisplay);
 
     await page.setContent(html);
 
     const invoicesDir = path.join(__dirname, "invoices");
     fs.mkdirSync(invoicesDir, { recursive: true });
-    const filePath = path.join(
-        invoicesDir,
-        `invoice_${Date.now()}.pdf`,
-    );
+    const filePath = path.join(invoicesDir, `invoice_${Date.now()}.pdf`);
 
     await page.pdf({
         path: filePath,

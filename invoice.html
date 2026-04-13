@@ -1,16 +1,302 @@
-<html>
-  <body style="font-family: Arial; padding: 30px;">
-    <h1>LoftyXphereHomes 🏡</h1>
-    <h2>Invoice</h2>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Invoice — LoftyXphereHomes</title>
+    <style>
+      :root {
+        --ink: #1a1d21;
+        --muted: #5c6370;
+        --line: #e2e5eb;
+        --accent: #0f3d2e;
+        --surface: #f7f8fa;
+      }
 
-    <p><strong>Name:</strong> {{name}}</p>
-    <p><strong>Phone:</strong> {{phone}}</p>
-    <p><strong>Apartment:</strong> {{apartment}}</p>
-    <p><strong>Check-in:</strong> {{checkIn}}</p>
-    <p><strong>Check-out:</strong> {{checkOut}}</p>
+      * {
+        box-sizing: border-box;
+      }
 
-    <h3>Amount Paid: ₦{{amount}}</h3>
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        font-size: 11pt;
+        line-height: 1.45;
+        color: var(--ink);
+        background: #fff;
+      }
 
-    <p>Thank you for choosing us!</p>
+      @page {
+        size: A4;
+        margin: 16mm 18mm;
+      }
+
+      .sheet {
+        max-width: 210mm;
+        margin: 0 auto;
+        padding: 8mm 0 12mm;
+      }
+
+      header.doc-head {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        padding-bottom: 1.25rem;
+        border-bottom: 2px solid var(--accent);
+        margin-bottom: 1.5rem;
+      }
+
+      .brand {
+        min-width: 0;
+      }
+
+      .brand-name {
+        margin: 0 0 0.2rem;
+        font-size: 1.35rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: var(--accent);
+      }
+
+      .brand-tag {
+        margin: 0;
+        font-size: 9pt;
+        color: var(--muted);
+        max-width: 260px;
+      }
+
+      .doc-meta {
+        text-align: right;
+        font-size: 10pt;
+      }
+
+      .doc-meta .label {
+        display: block;
+        font-size: 8pt;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin-bottom: 0.15rem;
+      }
+
+      .doc-meta .value {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        margin-bottom: 1.75rem;
+      }
+
+      @media print {
+        .grid-2 {
+          break-inside: avoid;
+        }
+      }
+
+      .panel {
+        padding: 0.85rem 1rem;
+        background: var(--surface);
+        border-radius: 6px;
+        border: 1px solid var(--line);
+      }
+
+      .panel h2 {
+        margin: 0 0 0.65rem;
+        font-size: 8pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      .panel p {
+        margin: 0.25rem 0;
+      }
+
+      .panel strong {
+        font-weight: 600;
+        color: var(--ink);
+      }
+
+      table.invoice-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.25rem;
+        font-size: 10pt;
+      }
+
+      table.invoice-table thead th {
+        text-align: left;
+        padding: 0.55rem 0.65rem;
+        background: var(--ink);
+        color: #fff;
+        font-size: 8pt;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      table.invoice-table thead th:nth-child(2),
+      table.invoice-table tbody td:nth-child(2) {
+        text-align: right;
+        width: 28%;
+      }
+
+      table.invoice-table tbody td {
+        padding: 0.75rem 0.65rem;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+
+      table.invoice-table tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      .desc-primary {
+        font-weight: 600;
+        margin-bottom: 0.2rem;
+      }
+
+      .desc-secondary {
+        font-size: 9pt;
+        color: var(--muted);
+      }
+
+      .totals {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 1.75rem;
+      }
+
+      .totals-inner {
+        width: 100%;
+        max-width: 280px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+
+      .totals-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.6rem 0.85rem;
+        font-size: 10pt;
+      }
+
+      .totals-row.due {
+        background: var(--accent);
+        color: #fff;
+        font-weight: 700;
+        font-size: 11pt;
+      }
+
+      .totals-row.due span:last-child {
+        font-variant-numeric: tabular-nums;
+      }
+
+      footer.doc-foot {
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--line);
+        font-size: 9pt;
+        color: var(--muted);
+      }
+
+      footer.doc-foot p {
+        margin: 0 0 0.4rem;
+      }
+
+      .table-caption {
+        caption-side: top;
+        text-align: left;
+        font-size: 8pt;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        padding: 0 0 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <header class="doc-head">
+        <div class="brand">
+          <h1 class="brand-name">LoftyXphereHomes</h1>
+          <p class="brand-tag">
+            Short-stay accommodation — booking confirmation &amp; receipt
+          </p>
+        </div>
+        <div class="doc-meta">
+          <span class="label">Document</span>
+          <span class="value">Invoice</span>
+        </div>
+      </header>
+
+      <div class="grid-2">
+        <section class="panel" aria-labelledby="bill-to-heading">
+          <h2 id="bill-to-heading">Bill to</h2>
+          <p><strong>{{name}}</strong></p>
+          <p><strong>Phone</strong> {{phone}}</p>
+        </section>
+        <section class="panel" aria-labelledby="stay-heading">
+          <h2 id="stay-heading">Stay details</h2>
+          <p><strong>Property</strong> {{apartment}}</p>
+          <p><strong>Check-in</strong> {{checkIn}}</p>
+          <p><strong>Check-out</strong> {{checkOut}}</p>
+        </section>
+      </div>
+
+      <table class="invoice-table">
+        <caption class="table-caption">
+          Charges for this booking
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Description</th>
+            <th scope="col">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div class="desc-primary">Accommodation — {{apartment}}</div>
+              <div class="desc-secondary">
+                Stay from {{checkIn}} to {{checkOut}}
+              </div>
+            </td>
+            <td>₦{{amount}}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="totals">
+        <div class="totals-inner">
+          <div class="totals-row due">
+            <span>Total due</span>
+            <span>₦{{amount}}</span>
+          </div>
+        </div>
+      </div>
+
+      <footer class="doc-foot">
+        <p>Thank you for choosing LoftyXphereHomes.</p>
+        <p>
+          This document serves as your booking summary. Please retain it for
+          your records. For billing questions, reply using the phone number on
+          file or contact us through your booking channel.
+        </p>
+      </footer>
+    </div>
   </body>
 </html>

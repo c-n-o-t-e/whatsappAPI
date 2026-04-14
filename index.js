@@ -20,7 +20,7 @@ const SHEET_NAME = process.env.SHEET_NAME || "Sheet1";
 function requireSheetId() {
     if (!SHEET_ID || typeof SHEET_ID !== "string" || !SHEET_ID.trim()) {
         throw new Error(
-            "Missing SHEET_ID. Set SHEET_ID in .env (or environment) to your Google Spreadsheet ID."
+            "Missing SHEET_ID. Set SHEET_ID in .env (or environment) to your Google Spreadsheet ID.",
         );
     }
 }
@@ -30,7 +30,7 @@ function parseInvoiceIdFromText(text) {
     if (!t) return null;
 
     const labeled = t.match(
-        /invoice\s*(?:id|number)?\s*[:#-]?\s*(LXH-[A-Z0-9]+(?:-[A-Z0-9]+)+)/i
+        /invoice\s*(?:id|number)?\s*[:#-]?\s*(LXH-[A-Z0-9]+(?:-[A-Z0-9]+)+)/i,
     );
     if (labeled?.[1]) return labeled[1];
 
@@ -87,22 +87,13 @@ async function setStayedByInvoiceId({ invoiceId, stayed }) {
 
     const values = col.data.values || [];
     const rowIndex0 = values.findIndex(
-        (row) => String(row?.[0] ?? "").trim() === String(invoiceId).trim()
+        (row) => String(row?.[0] ?? "").trim() === String(invoiceId).trim(),
     );
 
-    // If not found, append a minimal "cancellation" row so you still capture it.
     if (rowIndex0 === -1) {
-        await appendToSheet({
-            name: "",
-            phone: "",
-            apartment: "",
-            checkIn: "",
-            checkOut: "",
-            amount: "",
-            stayed,
-            invoiceId,
-        });
-        return { updated: false, appended: true };
+        const err = new Error("Invoice ID doesn't exist");
+        err.statusCode = 404;
+        throw err;
     }
 
     // Sheets rows are 1-indexed. Update H (stayed) in the matched row.
@@ -143,6 +134,32 @@ function parseDateSafely(value) {
     return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** Parse stay dates; yearless strings (e.g. "Aug 10") use the current year so nights match the invoice. */
+function parseStayDate(value) {
+    const raw = String(value ?? "").trim();
+    if (!raw) return null;
+    if (/\b(19|20)\d{2}\b/.test(raw)) {
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const y = new Date().getFullYear();
+    const d = new Date(`${raw} ${y}`);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Whole nights between check-in and check-out (nights = calendar days between dates). */
+function formatNightsLabel(checkIn, checkOut) {
+    const start = parseStayDate(checkIn);
+    const end = parseStayDate(checkOut);
+    if (!start || !end) return "—";
+    const nights = Math.max(
+        0,
+        Math.round((end.getTime() - start.getTime()) / 86400000),
+    );
+    if (nights === 1) return "1 night";
+    return `${nights} nights`;
+}
+
 function makeInvoiceNumber(data) {
     const now = new Date();
     const y = now.getFullYear();
@@ -159,7 +176,7 @@ async function generateInvoice(data) {
     const browser = await puppeteer.launch({ channel: "chrome" });
     const page = await browser.newPage();
 
-    let html = fs.readFileSync("./invoice.html", "utf8");
+    let html = fs.readFileSync(path.join(__dirname, "invoice.html"), "utf8");
 
     const logoPath = path.join(__dirname, "images", "logo.png");
     const logoDataUri = `data:image/png;base64,${fs.readFileSync(logoPath).toString("base64")}`;
@@ -191,12 +208,16 @@ async function generateInvoice(data) {
         .replaceAll("{{status}}", "Paid")
         .replaceAll(
             "{{invoiceNumber}}",
-            forReplace(data.invoiceId ?? makeInvoiceNumber(data))
+            forReplace(data.invoiceId ?? makeInvoiceNumber(data)),
         )
         .replaceAll("{{issueDate}}", forReplace(issueDate))
         .replaceAll("{{businessName}}", forReplace(businessName))
         .replaceAll("{{businessPhone}}", forReplace(businessPhone))
-        .replaceAll("{{businessEmail}}", forReplace(businessEmail));
+        .replaceAll("{{businessEmail}}", forReplace(businessEmail))
+        .replaceAll(
+            "{{nightsLabel}}",
+            forReplace(formatNightsLabel(data.checkIn, data.checkOut)),
+        );
 
     await page.setContent(html, { waitUntil: "load" });
     await page.evaluate(() => document.fonts.ready);
@@ -269,7 +290,7 @@ app.post("/webhook", async (req, res) => {
                 const invoiceId = parseInvoiceIdFromText(text);
                 if (!invoiceId) {
                     throw new Error(
-                        "Booking cancelled message missing invoiceId. Include something like 'Invoice ID: LXH-20260414-1234-ABCD'."
+                        "Booking cancelled message missing invoiceId. Include something like 'Invoice ID: LXH-20260414-1234-ABCD'.",
                     );
                 }
                 await setStayedByInvoiceId({ invoiceId, stayed: false });
@@ -279,6 +300,14 @@ app.post("/webhook", async (req, res) => {
         res.sendStatus(200);
     } catch (err) {
         console.error(err);
+        const status = err.statusCode || 500;
+        const message =
+            status === 404 && err.message
+                ? err.message
+                : "Internal server error";
+        if (status === 404) {
+            return res.status(404).json({ error: message });
+        }
         res.sendStatus(500);
     }
 });

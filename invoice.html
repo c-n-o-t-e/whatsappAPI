@@ -517,6 +517,7 @@
               <p><strong>Property</strong> {{apartment}}</p>
               <p><strong>Check-in</strong> {{checkIn}}</p>
               <p><strong>Check-out</strong> {{checkOut}}</p>
+              <p><strong>Nights</strong> {{nightsLabel}}</p>
             </section>
           </div>
 
@@ -535,7 +536,7 @@
                 <td>
                   <div class="desc-primary">Accommodation — {{apartment}}</div>
                   <div class="desc-secondary">
-                    Stay from {{checkIn}} to {{checkOut}}
+                    Stay from {{checkIn}} to {{checkOut}} · {{nightsLabel}}
                   </div>
                 </td>
                 <td>₦{{amount}}</td>
@@ -553,7 +554,7 @@
                     <span>₦{{amount}}</span>
                   </div>
                   <div class="totals-row">
-                    <span>Fees</span>
+                    <span>Discount applied</span>
                     <span>₦0</span>
                   </div>
                   <div class="totals-row due">
@@ -562,10 +563,6 @@
                   </div>
                 </div>
               </div>
-              <p class="hint" style="margin: 0">
-                Status: <strong>Paid</strong>. If you believe this invoice is
-                incorrect, contact us within 24 hours of receiving it.
-              </p>
             </section>
 
             <section class="panel" aria-labelledby="support-heading">
@@ -576,6 +573,9 @@
               </p>
               <p style="margin: 0.25rem 0">
                 <strong>Email</strong> {{businessEmail}}
+              </p>
+              <p style="margin: 0.25rem 0">
+                <strong>IG:</strong> loftyxpherehome
               </p>
               <p class="hint" style="margin: 10px 0 0">
                 Please include your <strong>invoice #</strong> in your message
@@ -590,7 +590,6 @@
               This invoice serves as your booking summary. Please retain it for
               your records.
             </p>
-            <p><strong>Support</strong> {{businessPhone}} • {{businessEmail}}</p>
           </footer>
         </main>
       </div>

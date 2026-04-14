@@ -15,8 +15,32 @@ app.use(bodyParser.json());
    GOOGLE SHEETS SETUP
 ========================= */
 const SHEET_ID = process.env.SHEET_ID;
+const SHEET_NAME = process.env.SHEET_NAME || "Sheet1";
+
+function requireSheetId() {
+    if (!SHEET_ID || typeof SHEET_ID !== "string" || !SHEET_ID.trim()) {
+        throw new Error(
+            "Missing SHEET_ID. Set SHEET_ID in .env (or environment) to your Google Spreadsheet ID."
+        );
+    }
+}
+
+function parseInvoiceIdFromText(text) {
+    const t = String(text ?? "").trim();
+    if (!t) return null;
+
+    const labeled = t.match(
+        /invoice\s*(?:id|number)?\s*[:#-]?\s*(LXH-[A-Z0-9]+(?:-[A-Z0-9]+)+)/i
+    );
+    if (labeled?.[1]) return labeled[1];
+
+    const embedded = t.match(/\b(LXH-[A-Z0-9]+(?:-[A-Z0-9]+)+)\b/i);
+    return embedded?.[1] ?? null;
+}
 
 async function appendToSheet(data) {
+    requireSheetId();
+
     const auth = new google.auth.GoogleAuth({
         keyFile: "credentials.json",
         scopes: ["https://www.googleapis.com/auth/spreadsheets"],
@@ -26,7 +50,7 @@ async function appendToSheet(data) {
 
     await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
-        range: "Sheet1!A:G",
+        range: `${SHEET_NAME}!A:I`,
         valueInputOption: "USER_ENTERED",
         requestBody: {
             values: [
@@ -38,10 +62,59 @@ async function appendToSheet(data) {
                     data.checkOut,
                     data.amount,
                     new Date().toLocaleString(),
+                    data.stayed,
+                    data.invoiceId,
                 ],
             ],
         },
     });
+}
+
+async function setStayedByInvoiceId({ invoiceId, stayed }) {
+    requireSheetId();
+
+    const auth = new google.auth.GoogleAuth({
+        keyFile: "credentials.json",
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    });
+    const sheets = google.sheets({ version: "v4", auth });
+
+    // invoiceId column is I (9th). Read it and find row index.
+    const col = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `${SHEET_NAME}!I:I`,
+    });
+
+    const values = col.data.values || [];
+    const rowIndex0 = values.findIndex(
+        (row) => String(row?.[0] ?? "").trim() === String(invoiceId).trim()
+    );
+
+    // If not found, append a minimal "cancellation" row so you still capture it.
+    if (rowIndex0 === -1) {
+        await appendToSheet({
+            name: "",
+            phone: "",
+            apartment: "",
+            checkIn: "",
+            checkOut: "",
+            amount: "",
+            stayed,
+            invoiceId,
+        });
+        return { updated: false, appended: true };
+    }
+
+    // Sheets rows are 1-indexed. Update H (stayed) in the matched row.
+    const rowNumber = rowIndex0 + 1;
+    await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `${SHEET_NAME}!H${rowNumber}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[stayed]] },
+    });
+
+    return { updated: true, appended: false, rowNumber };
 }
 
 /* =========================
@@ -116,7 +189,10 @@ async function generateInvoice(data) {
         .replaceAll("{{checkOut}}", forReplace(data.checkOut))
         .replaceAll("{{amount}}", amountDisplay)
         .replaceAll("{{status}}", "Paid")
-        .replaceAll("{{invoiceNumber}}", forReplace(makeInvoiceNumber(data)))
+        .replaceAll(
+            "{{invoiceNumber}}",
+            forReplace(data.invoiceId ?? makeInvoiceNumber(data))
+        )
         .replaceAll("{{issueDate}}", forReplace(issueDate))
         .replaceAll("{{businessName}}", forReplace(businessName))
         .replaceAll("{{businessPhone}}", forReplace(businessPhone))
@@ -146,13 +222,19 @@ async function handleBooking(message) {
     console.log("🔥 Processing booking...");
 
     // Mock data (later replace with parser)
-    const data = {
+    const base = {
         name: message.name,
         phone: message.phoneNumber,
         apartment: message.apartment,
         checkIn: message.checkIn,
         checkOut: message.checkOut,
         amount: message.amount,
+    };
+    const invoiceId = makeInvoiceNumber(base);
+    const data = {
+        ...base,
+        stayed: true,
+        invoiceId,
     };
 
     // 1. Generate Invoice
@@ -183,6 +265,14 @@ app.post("/webhook", async (req, res) => {
                 text?.toLowerCase().includes("your invoice will be generated")
             ) {
                 await handleBooking(message);
+            } else if (text?.toLowerCase().includes("booking cancelled")) {
+                const invoiceId = parseInvoiceIdFromText(text);
+                if (!invoiceId) {
+                    throw new Error(
+                        "Booking cancelled message missing invoiceId. Include something like 'Invoice ID: LXH-20260414-1234-ABCD'."
+                    );
+                }
+                await setStayedByInvoiceId({ invoiceId, stayed: false });
             }
         }
 

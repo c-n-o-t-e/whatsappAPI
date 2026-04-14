@@ -4,6 +4,9 @@ const fs = require("fs");
 const path = require("path");
 const puppeteer = require("puppeteer-core");
 const { google } = require("googleapis");
+const dotenv = require("dotenv");
+
+dotenv.config();
 
 const app = express();
 app.use(bodyParser.json());
@@ -11,7 +14,7 @@ app.use(bodyParser.json());
 /* =========================
    GOOGLE SHEETS SETUP
 ========================= */
-const SHEET_ID = "YOUR_SHEET_ID";
+const SHEET_ID = process.env.SHEET_ID;
 
 async function appendToSheet(data) {
     const auth = new google.auth.GoogleAuth({
@@ -99,7 +102,9 @@ async function generateInvoice(data) {
 
     const businessName = process.env.BUSINESS_NAME || "Lofty Xphere Homes";
     const businessPhone =
-        process.env.BUSINESS_PHONE || process.env.WHATSAPP_PHONE || "08161122328";
+        process.env.BUSINESS_PHONE ||
+        process.env.WHATSAPP_PHONE ||
+        "08161122328";
     const businessEmail =
         process.env.BUSINESS_EMAIL || "hello@loftyxpherehomes.com";
 
@@ -155,8 +160,8 @@ async function handleBooking(message) {
     console.log("Invoice created:", invoicePath);
 
     // 2. Save to Google Sheets
-    // await appendToSheet(data);
-    // console.log("Saved to Google Sheets ✅");
+    await appendToSheet(data);
+    console.log("Saved to Google Sheets ✅");
 
     // 3. (Later) send back via WhatsApp API
 }

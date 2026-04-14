@@ -3,14 +3,30 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Invoice — LoftyXphereHomes</title>
+    <title>Invoice — Lofty Xphere Homes</title>
     <style>
+      /* World-class, print-first invoice styling (Puppeteer-friendly). */
       :root {
-        --ink: #1a1d21;
-        --muted: #5c6370;
-        --line: #e2e5eb;
-        --accent: #0f3d2e;
-        --surface: #f7f8fa;
+        /* Brand */
+        --brand-red: #c62828; /* from logo */
+        --brand-black: #111111;
+
+        /* Neutrals */
+        --paper: #ffffff;
+        --ink: #111827;
+        --muted: #4b5563;
+        --muted-2: #6b7280;
+        --line: #e5e7eb;
+        --surface: #faf7f7;
+
+        /* Typography scale */
+        --text: 10.75pt;
+        --title: 18pt;
+        --h: 8.5pt;
+
+        /* Geometry */
+        --radius: 10px;
+        --pad: 14px;
       }
 
       * {
@@ -22,10 +38,12 @@
         padding: 0;
         font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
           "Helvetica Neue", Arial, sans-serif;
-        font-size: 11pt;
-        line-height: 1.45;
+        font-size: var(--text);
+        line-height: 1.5;
         color: var(--ink);
-        background: #fff;
+        background: var(--paper);
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
       }
 
       @page {
@@ -36,65 +54,160 @@
       .sheet {
         max-width: 210mm;
         margin: 0 auto;
-        padding: 8mm 0 12mm;
+        padding: 7mm 0 12mm;
+        position: relative;
+      }
+
+      main {
+        display: block;
+      }
+
+      /* Subtle brand watermark (prints well, doesn't fight content) */
+      .watermark {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+      }
+      .watermark::before {
+        content: "";
+        position: absolute;
+        right: -28mm;
+        top: 22mm;
+        width: 120mm;
+        height: 120mm;
+        border-radius: 999px;
+        background: radial-gradient(
+          closest-side,
+          rgba(198, 40, 40, 0.09),
+          rgba(198, 40, 40, 0) 70%
+        );
+        transform: rotate(8deg);
+      }
+
+      .content {
+        position: relative;
+        z-index: 1;
       }
 
       header.doc-head {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 1rem;
-        padding-bottom: 1.25rem;
-        border-bottom: 2px solid var(--accent);
-        margin-bottom: 1.5rem;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: start;
+        gap: 18px;
+        padding-bottom: 16px;
+        margin-bottom: 18px;
+        border-bottom: 1px solid var(--line);
       }
 
       .brand {
+        display: flex;
+        gap: 14px;
+        align-items: center;
         min-width: 0;
       }
 
-      .brand-name {
-        margin: 0 0 0.2rem;
-        font-size: 1.35rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-        color: var(--accent);
-      }
-
-      .brand-tag {
-        margin: 0;
-        font-size: 9pt;
-        color: var(--muted);
-        max-width: 260px;
-      }
-
-      .doc-meta {
-        text-align: right;
-        font-size: 10pt;
-      }
-
-      .doc-meta .label {
+      .brand-logo {
         display: block;
-        font-size: 8pt;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--muted);
-        margin-bottom: 0.15rem;
+        width: 460px;
+        max-width: 78vw;
+        height: auto;
+        max-height: 160px;
+        object-fit: contain;
+        object-position: left center;
       }
 
-      .doc-meta .value {
-        font-size: 1.25rem;
+      .meta {
+        text-align: right;
+        padding: 2px 0;
+        min-width: 180px;
+      }
+
+      .meta .kicker {
+        font-size: var(--h);
         font-weight: 700;
-        color: var(--ink);
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--brand-red);
+        margin: 0 0 6px;
+      }
+
+      .meta .title {
+        margin: 0;
+        font-size: var(--title);
+        letter-spacing: -0.02em;
+        font-weight: 800;
+        color: var(--brand-black);
+      }
+
+      .meta .subline {
+        margin: 8px 0 0;
+        color: var(--muted-2);
+        font-size: 9pt;
+      }
+
+      .meta-lines {
+        margin: 10px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 6px;
+        font-size: 9.5pt;
+        color: var(--muted);
+      }
+
+      .meta-lines li {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px;
+        align-items: baseline;
+        justify-content: end;
+      }
+
+      .meta-lines .label {
+        font-weight: 700;
+        color: var(--brand-black);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 8pt;
+      }
+
+      .meta-lines .value {
+        font-variant-numeric: tabular-nums;
+        color: var(--brand-black);
+        font-weight: 700;
+        justify-self: end;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--brand-black);
+        font-size: 8.5pt;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        margin-top: 10px;
+        justify-content: flex-end;
+      }
+
+      .badge .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--brand-red);
       }
 
       .grid-2 {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 1.5rem;
-        margin-bottom: 1.75rem;
+        gap: 14px;
+        margin-bottom: 18px;
       }
 
       @media print {
@@ -103,20 +216,41 @@
         }
       }
 
+      .brand-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        min-width: 0;
+      }
+
       .panel {
-        padding: 0.85rem 1rem;
-        background: var(--surface);
-        border-radius: 6px;
+        padding: var(--pad);
+        background: linear-gradient(180deg, var(--surface), #ffffff);
         border: 1px solid var(--line);
+        border-radius: var(--radius);
       }
 
       .panel h2 {
-        margin: 0 0 0.65rem;
-        font-size: 8pt;
-        font-weight: 700;
+        margin: 0 0 10px;
+        font-size: var(--h);
+        font-weight: 800;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--muted);
+        letter-spacing: 0.14em;
+        color: var(--brand-black);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .panel h2::after {
+        content: "";
+        height: 2px;
+        flex: 1;
+        background: linear-gradient(
+          90deg,
+          rgba(198, 40, 40, 0.9),
+          rgba(198, 40, 40, 0)
+        );
       }
 
       .panel p {
@@ -125,37 +259,49 @@
 
       .panel strong {
         font-weight: 600;
-        color: var(--ink);
+        color: var(--brand-black);
+      }
+
+      .lead {
+        font-weight: 700;
+        font-size: 12pt;
+        color: var(--brand-black);
       }
 
       table.invoice-table {
         width: 100%;
         border-collapse: collapse;
-        margin-bottom: 1.25rem;
+        margin-bottom: 14px;
         font-size: 10pt;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        overflow: hidden;
       }
 
       table.invoice-table thead th {
         text-align: left;
-        padding: 0.55rem 0.65rem;
-        background: var(--ink);
+        padding: 10px 12px;
+        background: #0b0b0b;
         color: #fff;
-        font-size: 8pt;
-        font-weight: 600;
+        font-size: var(--h);
+        font-weight: 800;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.12em;
       }
 
       table.invoice-table thead th:nth-child(2),
       table.invoice-table tbody td:nth-child(2) {
         text-align: right;
         width: 28%;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
       }
 
       table.invoice-table tbody td {
-        padding: 0.75rem 0.65rem;
+        padding: 12px;
         border-bottom: 1px solid var(--line);
         vertical-align: top;
+        background: #fff;
       }
 
       table.invoice-table tbody tr:last-child td {
@@ -164,6 +310,7 @@
 
       .desc-primary {
         font-weight: 600;
+        color: var(--brand-black);
         margin-bottom: 0.2rem;
       }
 
@@ -175,28 +322,42 @@
       .totals {
         display: flex;
         justify-content: flex-end;
-        margin-bottom: 1.75rem;
+        margin: 10px 0 18px;
       }
 
       .totals-inner {
         width: 100%;
-        max-width: 280px;
+        max-width: 340px;
         border: 1px solid var(--line);
-        border-radius: 6px;
+        border-radius: var(--radius);
         overflow: hidden;
+        box-shadow: 0 2px 12px rgba(17, 24, 39, 0.08);
+      }
+
+      @media print {
+        .totals-inner {
+          box-shadow: none;
+          break-inside: avoid;
+        }
       }
 
       .totals-row {
         display: flex;
         justify-content: space-between;
-        padding: 0.6rem 0.85rem;
+        padding: 10px 12px;
         font-size: 10pt;
+        background: #fff;
+      }
+
+      .totals-row span:last-child {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
       }
 
       .totals-row.due {
-        background: var(--accent);
+        background: linear-gradient(135deg, var(--brand-red), #8b1b1b);
         color: #fff;
-        font-weight: 700;
+        font-weight: 800;
         font-size: 11pt;
       }
 
@@ -205,8 +366,8 @@
       }
 
       footer.doc-foot {
-        margin-top: 2rem;
-        padding-top: 1rem;
+        margin-top: 18px;
+        padding-top: 14px;
         border-top: 1px solid var(--line);
         font-size: 9pt;
         color: var(--muted);
@@ -219,84 +380,220 @@
       .table-caption {
         caption-side: top;
         text-align: left;
-        font-size: 8pt;
-        font-weight: 600;
+        font-size: var(--h);
+        font-weight: 800;
         text-transform: uppercase;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.14em;
+        color: var(--brand-black);
+        padding: 0 0 8px;
+      }
+
+      .table-caption .dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--brand-red);
+        margin-right: 8px;
+        transform: translateY(-1px);
+      }
+
+      .stack {
+        display: grid;
+        gap: 14px;
+        margin-bottom: 18px;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 14px;
+      }
+
+      @media print {
+        .split {
+          break-inside: avoid;
+        }
+      }
+
+      .keyvals {
+        display: grid;
+        gap: 8px;
+        margin-top: 8px;
+        font-size: 9.5pt;
+      }
+
+      .kv {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        padding: 8px 10px;
+        border: 1px dashed rgba(17, 24, 39, 0.14);
+        border-radius: 10px;
+        background: #fff;
+      }
+
+      .kv .k {
         color: var(--muted);
-        padding: 0 0 0.5rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 8pt;
+      }
+
+      .kv .v {
+        color: var(--brand-black);
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .pay-cta {
+        display: grid;
+        gap: 8px;
+      }
+
+      .pay-cta .headline {
+        margin: 0;
+        font-weight: 900;
+        font-size: 12pt;
+        color: var(--brand-black);
+        letter-spacing: -0.01em;
+      }
+
+      .pay-cta .hint {
+        margin: 0;
+        color: var(--muted);
+        font-size: 9.5pt;
       }
     </style>
   </head>
   <body>
     <div class="sheet">
-      <header class="doc-head">
-        <div class="brand">
-          <h1 class="brand-name">LoftyXphereHomes</h1>
-          <p class="brand-tag">
-            Short-stay accommodation — booking confirmation &amp; receipt
-          </p>
-        </div>
-        <div class="doc-meta">
-          <span class="label">Document</span>
-          <span class="value">Invoice</span>
-        </div>
-      </header>
-
-      <div class="grid-2">
-        <section class="panel" aria-labelledby="bill-to-heading">
-          <h2 id="bill-to-heading">Bill to</h2>
-          <p><strong>{{name}}</strong></p>
-          <p><strong>Phone</strong> {{phone}}</p>
-        </section>
-        <section class="panel" aria-labelledby="stay-heading">
-          <h2 id="stay-heading">Stay details</h2>
-          <p><strong>Property</strong> {{apartment}}</p>
-          <p><strong>Check-in</strong> {{checkIn}}</p>
-          <p><strong>Check-out</strong> {{checkOut}}</p>
-        </section>
-      </div>
-
-      <table class="invoice-table">
-        <caption class="table-caption">
-          Charges for this booking
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">Description</th>
-            <th scope="col">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>
-              <div class="desc-primary">Accommodation — {{apartment}}</div>
-              <div class="desc-secondary">
-                Stay from {{checkIn}} to {{checkOut}}
-              </div>
-            </td>
-            <td>₦{{amount}}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div class="totals">
-        <div class="totals-inner">
-          <div class="totals-row due">
-            <span>Total due</span>
-            <span>₦{{amount}}</span>
+      <div class="watermark" aria-hidden="true"></div>
+      <div class="content">
+        <header class="doc-head">
+          <div class="brand">
+            <div class="brand-stack">
+              <img
+                class="brand-logo"
+                src="{{LOGO_SRC}}"
+                width="380"
+                height="132"
+                alt="Lofty Xphere Homes"
+              />
+            </div>
           </div>
-        </div>
-      </div>
+          <div class="meta">
+            <p class="kicker">Document</p>
+            <p class="title">Invoice</p>
+            <p class="subline">For guest stays and reservations</p>
+            <div class="badge" aria-label="Invoice status">
+              <span class="dot" aria-hidden="true"></span>
+              <span>{{status}}</span>
+            </div>
+            <ul class="meta-lines" aria-label="Invoice metadata">
+              <li>
+                <span class="label">Invoice #</span>
+                <span class="value">{{invoiceNumber}}</span>
+              </li>
+              <li>
+                <span class="label">Issued</span>
+                <span class="value">{{issueDate}}</span>
+              </li>
+            </ul>
+          </div>
+        </header>
 
-      <footer class="doc-foot">
-        <p>Thank you for choosing LoftyXphereHomes.</p>
-        <p>
-          This document serves as your booking summary. Please retain it for
-          your records. For billing questions, reply using the phone number on
-          file or contact us through your booking channel.
-        </p>
-      </footer>
+        <main>
+          <div class="grid-2">
+            <section class="panel" aria-labelledby="bill-to-heading">
+              <h2 id="bill-to-heading">Bill to</h2>
+              <p class="lead">{{name}}</p>
+              <p><strong>Phone</strong> {{phone}}</p>
+            </section>
+            <section class="panel" aria-labelledby="stay-heading">
+              <h2 id="stay-heading">Stay details</h2>
+              <p><strong>Property</strong> {{apartment}}</p>
+              <p><strong>Check-in</strong> {{checkIn}}</p>
+              <p><strong>Check-out</strong> {{checkOut}}</p>
+            </section>
+          </div>
+
+          <table class="invoice-table">
+            <caption class="table-caption">
+              <span class="dot" aria-hidden="true"></span>Charges for this booking
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Description</th>
+                <th scope="col">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <div class="desc-primary">Accommodation — {{apartment}}</div>
+                  <div class="desc-secondary">
+                    Stay from {{checkIn}} to {{checkOut}}
+                  </div>
+                </td>
+                <td>₦{{amount}}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="split">
+            <section class="panel" aria-labelledby="summary-heading">
+              <h2 id="summary-heading">Summary</h2>
+              <div class="totals">
+                <div class="totals-inner" aria-label="Total due">
+                  <div class="totals-row">
+                    <span>Subtotal</span>
+                    <span>₦{{amount}}</span>
+                  </div>
+                  <div class="totals-row">
+                    <span>Fees</span>
+                    <span>₦0</span>
+                  </div>
+                  <div class="totals-row due">
+                    <span>Total due</span>
+                    <span>₦{{amount}}</span>
+                  </div>
+                </div>
+              </div>
+              <p class="hint" style="margin: 0">
+                Status: <strong>Paid</strong>. If you believe this invoice is
+                incorrect, contact us within 24 hours of receiving it.
+              </p>
+            </section>
+
+            <section class="panel" aria-labelledby="support-heading">
+              <h2 id="support-heading">Support</h2>
+              <p class="lead" style="margin: 0 0 0.25rem">{{businessName}}</p>
+              <p style="margin: 0.25rem 0">
+                <strong>Phone</strong> {{businessPhone}}
+              </p>
+              <p style="margin: 0.25rem 0">
+                <strong>Email</strong> {{businessEmail}}
+              </p>
+              <p class="hint" style="margin: 10px 0 0">
+                Please include your <strong>invoice #</strong> in your message
+                for faster support.
+              </p>
+            </section>
+          </div>
+
+          <footer class="doc-foot">
+            <p><strong>Thank you for choosing Lofty Xphere Homes.</strong></p>
+            <p>
+              This invoice serves as your booking summary. Please retain it for
+              your records.
+            </p>
+            <p><strong>Support</strong> {{businessPhone}} • {{businessEmail}}</p>
+          </footer>
+        </main>
+      </div>
     </div>
   </body>
 </html>

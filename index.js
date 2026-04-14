@@ -50,16 +50,58 @@ function forReplace(value) {
     return String(value ?? "").replace(/\$/g, "$$");
 }
 
+function formatDateDisplay(date) {
+    try {
+        return new Intl.DateTimeFormat("en-GB", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+        }).format(date);
+    } catch {
+        return date.toLocaleDateString();
+    }
+}
+
+function parseDateSafely(value) {
+    const d = new Date(String(value ?? "").trim());
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function makeInvoiceNumber(data) {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    const last4 = String(data?.phone ?? "")
+        .replace(/\D/g, "")
+        .slice(-4);
+    const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+    return `LXH-${y}${m}${d}-${last4 || "GUEST"}-${rand}`;
+}
+
 async function generateInvoice(data) {
     const browser = await puppeteer.launch({ channel: "chrome" });
     const page = await browser.newPage();
 
     let html = fs.readFileSync("./invoice.html", "utf8");
 
+    const logoPath = path.join(__dirname, "images", "logo.png");
+    const logoDataUri = `data:image/png;base64,${fs.readFileSync(logoPath).toString("base64")}`;
+    html = html.replaceAll("{{LOGO_SRC}}", logoDataUri);
+
     const amountDisplay =
         typeof data.amount === "number"
             ? data.amount.toLocaleString("en-NG")
             : forReplace(data.amount);
+
+    const now = new Date();
+    const issueDate = formatDateDisplay(now);
+
+    const businessName = process.env.BUSINESS_NAME || "Lofty Xphere Homes";
+    const businessPhone =
+        process.env.BUSINESS_PHONE || process.env.WHATSAPP_PHONE || "08161122328";
+    const businessEmail =
+        process.env.BUSINESS_EMAIL || "hello@loftyxpherehomes.com";
 
     html = html
         .replaceAll("{{name}}", forReplace(data.name))
@@ -67,9 +109,16 @@ async function generateInvoice(data) {
         .replaceAll("{{apartment}}", forReplace(data.apartment))
         .replaceAll("{{checkIn}}", forReplace(data.checkIn))
         .replaceAll("{{checkOut}}", forReplace(data.checkOut))
-        .replaceAll("{{amount}}", amountDisplay);
+        .replaceAll("{{amount}}", amountDisplay)
+        .replaceAll("{{status}}", "Paid")
+        .replaceAll("{{invoiceNumber}}", forReplace(makeInvoiceNumber(data)))
+        .replaceAll("{{issueDate}}", forReplace(issueDate))
+        .replaceAll("{{businessName}}", forReplace(businessName))
+        .replaceAll("{{businessPhone}}", forReplace(businessPhone))
+        .replaceAll("{{businessEmail}}", forReplace(businessEmail));
 
-    await page.setContent(html);
+    await page.setContent(html, { waitUntil: "load" });
+    await page.evaluate(() => document.fonts.ready);
 
     const invoicesDir = path.join(__dirname, "invoices");
     fs.mkdirSync(invoicesDir, { recursive: true });
@@ -93,12 +142,12 @@ async function handleBooking(message) {
 
     // Mock data (later replace with parser)
     const data = {
-        name: "John Doe",
-        phone: message.from,
-        apartment: "Lekki 2BR",
-        checkIn: "Aug 10",
-        checkOut: "Aug 12",
-        amount: 250000,
+        name: message.name,
+        phone: message.phoneNumber,
+        apartment: message.apartment,
+        checkIn: message.checkIn,
+        checkOut: message.checkOut,
+        amount: message.amount,
     };
 
     // 1. Generate Invoice

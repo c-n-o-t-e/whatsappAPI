@@ -15,7 +15,80 @@ app.use(bodyParser.json());
    GOOGLE SHEETS SETUP
 ========================= */
 const SHEET_ID = process.env.SHEET_ID;
-const SHEET_NAME = process.env.SHEET_NAME || "Sheet1";
+
+/**
+ * Test-only: shift which calendar month gets new tabs + invoice id date.
+ * Set ONE of:
+ *   MOCK_BOOKING_MONTH_OFFSET=1   → pretend "today" is next month (tab + LXH date)
+ *   MOCK_BOOKING_DATE=2026-06-15 → fixed pretend date (YYYY-MM-DD)
+ * Remove both for production. MOCK_BOOKING_DATE wins if both are set.
+ */
+function addMonths(date, months) {
+    const d = new Date(date.getTime());
+    const expectedDay = d.getDate();
+    d.setMonth(d.getMonth() + months);
+    if (d.getDate() !== expectedDay) {
+        d.setDate(0);
+    }
+    return d;
+}
+
+function parseMockBookingDateFromEnv() {
+    const raw = process.env.MOCK_BOOKING_DATE;
+    if (!raw || !String(raw).trim()) {
+        return null;
+    }
+    const s = String(raw).trim();
+    const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (ymd) {
+        const y = Number(ymd[1]);
+        const mo = Number(ymd[2]);
+        const d = Number(ymd[3]);
+        const dt = new Date(y, mo - 1, d, 12, 0, 0);
+        return Number.isNaN(dt.getTime()) ? null : dt;
+    }
+    const dt = new Date(s);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+/** "Now" for month tab + booking row timestamp + invoice id prefix. Respects mock env in dev. */
+function getBookingDateForSheet() {
+    const fixed = parseMockBookingDateFromEnv();
+    if (fixed) {
+        return fixed;
+    }
+    const off = process.env.MOCK_BOOKING_MONTH_OFFSET;
+    if (off == null || String(off).trim() === "") {
+        return new Date();
+    }
+    const n = parseInt(String(off), 10);
+    if (Number.isNaN(n) || n === 0) {
+        return new Date();
+    }
+    return addMonths(new Date(), n);
+}
+
+function isMockBookingDateActive() {
+    return (
+        Boolean(process.env.MOCK_BOOKING_DATE?.trim()) ||
+        (process.env.MOCK_BOOKING_MONTH_OFFSET != null &&
+            String(process.env.MOCK_BOOKING_MONTH_OFFSET).trim() !== "" &&
+            parseInt(process.env.MOCK_BOOKING_MONTH_OFFSET, 10) !== 0)
+    );
+}
+
+/** One row of headers for columns B–J (matches append order). */
+const BOOKING_HEADER_ROW = [
+    "Name",
+    "Phone",
+    "Room Code",
+    "Check-in",
+    "Check-out",
+    "Amount",
+    "Booking Date",
+    "Stayed",
+    "Invoice ID",
+];
 
 function requireSheetId() {
     if (!SHEET_ID || typeof SHEET_ID !== "string" || !SHEET_ID.trim()) {
@@ -38,6 +111,138 @@ function parseInvoiceIdFromText(text) {
     return embedded?.[1] ?? null;
 }
 
+/** Tab title like "April 2026" from a Date (booking / invoice month). */
+function formatMonthTabTitle(date) {
+    return new Intl.DateTimeFormat("en-US", {
+        month: "long",
+        year: "numeric",
+    }).format(date);
+}
+
+/** A1 range sheet name quoting for titles with spaces/special chars. */
+function quoteSheetNameForRange(title) {
+    const safe = String(title).replace(/'/g, "''");
+    return `'${safe}'`;
+}
+
+/** YYYYMMDD after LXH- in invoice ids → Date (local). */
+function parseDateFromInvoiceId(invoiceId) {
+    const m = String(invoiceId).match(/^LXH-(\d{4})(\d{2})(\d{2})-/i);
+    if (!m) return null;
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    const dt = new Date(y, mo - 1, d);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+async function listSpreadsheetSheetTitles(sheets) {
+    const res = await sheets.spreadsheets.get({
+        spreadsheetId: SHEET_ID,
+        fields: "sheets.properties.title",
+    });
+    return (res.data.sheets || []).map((s) => s.properties.title);
+}
+
+function findSheetTitleCaseInsensitive(titles, desiredTitle) {
+    const lower = String(desiredTitle).toLowerCase();
+    return titles.find((t) => String(t).toLowerCase() === lower) ?? null;
+}
+
+/**
+ * Ensures a tab exists for the calendar month of `date`. New tabs get a header row on B1:J1.
+ * Returns the sheet title as stored in the spreadsheet.
+ */
+async function ensureMonthSheet(sheets, date) {
+    const title = formatMonthTabTitle(date);
+    const titles = await listSpreadsheetSheetTitles(sheets);
+    const already = findSheetTitleCaseInsensitive(titles, title);
+    if (already) {
+        return already;
+    }
+
+    try {
+        await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: SHEET_ID,
+            requestBody: {
+                requests: [
+                    {
+                        addSheet: {
+                            properties: {
+                                title,
+                                gridProperties: {
+                                    rowCount: 2000,
+                                    columnCount: 26,
+                                },
+                            },
+                        },
+                    },
+                ],
+            },
+        });
+    } catch (e) {
+        const msg = String(e?.message || e);
+        const raceExisting = findSheetTitleCaseInsensitive(
+            await listSpreadsheetSheetTitles(sheets),
+            title,
+        );
+        if (raceExisting) {
+            return raceExisting;
+        }
+        if (!/already exists|duplicate/i.test(msg)) {
+            throw e;
+        }
+        const afterDup = findSheetTitleCaseInsensitive(
+            await listSpreadsheetSheetTitles(sheets),
+            title,
+        );
+        if (afterDup) {
+            return afterDup;
+        }
+        throw e;
+    }
+
+    const q = quoteSheetNameForRange(title);
+    await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `${q}!B1:J1`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [BOOKING_HEADER_ROW] },
+    });
+
+    return title;
+}
+
+async function findInvoiceRowInSheet(sheets, sheetTitle, invoiceId) {
+    const q = quoteSheetNameForRange(sheetTitle);
+    const col = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `${q}!J:J`,
+    });
+    const values = col.data.values || [];
+    const rowIndex0 = values.findIndex(
+        (row) => String(row?.[0] ?? "").trim() === String(invoiceId).trim(),
+    );
+    if (rowIndex0 === -1) return null;
+    return rowIndex0 + 1;
+}
+
+/** Search all tabs for invoice id in column J (fallback for legacy Sheet1 rows). */
+async function findInvoiceLocationAcrossSheets(sheets, invoiceId) {
+    const titles = await listSpreadsheetSheetTitles(sheets);
+    for (const sheetTitle of titles) {
+        const rowNumber = await findInvoiceRowInSheet(
+            sheets,
+            sheetTitle,
+            invoiceId,
+        );
+        if (rowNumber != null) {
+            return { sheetTitle, rowNumber };
+        }
+    }
+    return null;
+}
+
 async function appendToSheet(data) {
     requireSheetId();
 
@@ -48,9 +253,14 @@ async function appendToSheet(data) {
 
     const sheets = google.sheets({ version: "v4", auth });
 
+    const bookingDate = getBookingDateForSheet();
+    const monthTitle = await ensureMonthSheet(sheets, bookingDate);
+    const q = quoteSheetNameForRange(monthTitle);
+
+    // Sheet columns B–J: Name, Phone, Room, Check-in, Check-out, Amount, Booking date, Stayed, Invoice ID
     await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
-        range: `${SHEET_NAME}!A:I`,
+        range: `${q}!B:J`,
         valueInputOption: "USER_ENTERED",
         requestBody: {
             values: [
@@ -61,7 +271,7 @@ async function appendToSheet(data) {
                     data.checkIn,
                     data.checkOut,
                     data.amount,
-                    new Date().toLocaleString(),
+                    bookingDate.toLocaleString(),
                     data.stayed,
                     data.invoiceId,
                 ],
@@ -79,33 +289,43 @@ async function setStayedByInvoiceId({ invoiceId, stayed }) {
     });
     const sheets = google.sheets({ version: "v4", auth });
 
-    // invoiceId column is I (9th). Read it and find row index.
-    const col = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: `${SHEET_NAME}!I:I`,
-    });
+    const id = String(invoiceId).trim();
+    let sheetTitle = null;
+    let rowNumber = null;
 
-    const values = col.data.values || [];
-    const rowIndex0 = values.findIndex(
-        (row) => String(row?.[0] ?? "").trim() === String(invoiceId).trim(),
-    );
-
-    if (rowIndex0 === -1) {
-        const err = new Error("Invoice ID doesn't exist");
-        err.statusCode = 404;
-        throw err;
+    const fromId = parseDateFromInvoiceId(id);
+    if (fromId) {
+        const preferredTab = formatMonthTabTitle(fromId);
+        const titles = await listSpreadsheetSheetTitles(sheets);
+        const canonical = findSheetTitleCaseInsensitive(titles, preferredTab);
+        if (canonical) {
+            rowNumber = await findInvoiceRowInSheet(sheets, canonical, id);
+            if (rowNumber != null) {
+                sheetTitle = canonical;
+            }
+        }
     }
 
-    // Sheets rows are 1-indexed. Update H (stayed) in the matched row.
-    const rowNumber = rowIndex0 + 1;
+    if (sheetTitle == null) {
+        const found = await findInvoiceLocationAcrossSheets(sheets, id);
+        if (found == null) {
+            const err = new Error("Invoice ID doesn't exist");
+            err.statusCode = 404;
+            throw err;
+        }
+        sheetTitle = found.sheetTitle;
+        rowNumber = found.rowNumber;
+    }
+
+    const q = quoteSheetNameForRange(sheetTitle);
     await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
-        range: `${SHEET_NAME}!H${rowNumber}`,
+        range: `${q}!I${rowNumber}`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [[stayed]] },
     });
 
-    return { updated: true, appended: false, rowNumber };
+    return { updated: true, appended: false, rowNumber, sheetTitle };
 }
 
 /* =========================
@@ -160,8 +380,11 @@ function formatNightsLabel(checkIn, checkOut) {
     return `${nights} nights`;
 }
 
-function makeInvoiceNumber(data) {
-    const now = new Date();
+function makeInvoiceNumber(data, referenceDate = new Date()) {
+    const now =
+        referenceDate instanceof Date && !Number.isNaN(referenceDate.getTime())
+            ? referenceDate
+            : new Date();
     const y = now.getFullYear();
     const m = String(now.getMonth() + 1).padStart(2, "0");
     const d = String(now.getDate()).padStart(2, "0");
@@ -242,6 +465,15 @@ async function generateInvoice(data) {
 async function handleBooking(message) {
     console.log("🔥 Processing booking...");
 
+    const bookingDate = getBookingDateForSheet();
+    if (isMockBookingDateActive()) {
+        console.warn(
+            "[MOCK] Using shifted booking date for tab + invoice id:",
+            bookingDate.toISOString(),
+            `(month tab: ${formatMonthTabTitle(bookingDate)})`,
+        );
+    }
+
     // Mock data (later replace with parser)
     const base = {
         name: message.name,
@@ -251,7 +483,7 @@ async function handleBooking(message) {
         checkOut: message.checkOut,
         amount: message.amount,
     };
-    const invoiceId = makeInvoiceNumber(base);
+    const invoiceId = makeInvoiceNumber(base, bookingDate);
     const data = {
         ...base,
         stayed: true,

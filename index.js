@@ -253,8 +253,17 @@ async function appendToSheet(data) {
 
     const sheets = google.sheets({ version: "v4", auth });
 
-    const bookingDate = getBookingDateForSheet();
-    const monthTitle = await ensureMonthSheet(sheets, bookingDate);
+    const bookingDate = data.bookingDate instanceof Date ? data.bookingDate : null;
+    const resolvedBookingDate =
+        bookingDate && !Number.isNaN(bookingDate.getTime())
+            ? bookingDate
+            : getBookingDateForSheet();
+
+    // Pick the destination tab by stay month (check-in), falling back to booking month.
+    const stayStart = deriveStayStartDate(data.checkIn, resolvedBookingDate);
+    const sheetMonthDate = stayStart ?? resolvedBookingDate;
+
+    const monthTitle = await ensureMonthSheet(sheets, sheetMonthDate);
     const q = quoteSheetNameForRange(monthTitle);
 
     // Sheet columns B–J: Name, Phone, Room, Check-in, Check-out, Amount, Booking date, Stayed, Invoice ID
@@ -271,7 +280,7 @@ async function appendToSheet(data) {
                     data.checkIn,
                     data.checkOut,
                     data.amount,
-                    bookingDate.toLocaleString(),
+                    resolvedBookingDate.toLocaleString(),
                     data.stayed,
                     data.invoiceId,
                 ],
@@ -365,6 +374,41 @@ function parseStayDate(value) {
     const y = new Date().getFullYear();
     const d = new Date(`${raw} ${y}`);
     return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Derive the stay start date (check-in) for deciding which month tab to write into.
+ *
+ * If check-in is yearless (e.g. "Aug 10"), we assume the booking year, and if that
+ * would land "in the past" relative to the booking date, we roll it into next year.
+ */
+function deriveStayStartDate(checkInRaw, bookingDate) {
+    const raw = String(checkInRaw ?? "").trim();
+    if (!raw) return null;
+
+    // If it already includes a year, trust normal parsing.
+    if (/\b(19|20)\d{2}\b/.test(raw)) {
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    const ref =
+        bookingDate instanceof Date && !Number.isNaN(bookingDate.getTime())
+            ? bookingDate
+            : new Date();
+
+    // Try parsing as "Mon DD" (and other Date() compatible formats) with booking year.
+    const assumed = new Date(`${raw} ${ref.getFullYear()}`);
+    if (Number.isNaN(assumed.getTime())) return null;
+
+    // If assumed check-in is meaningfully before booking date, assume next year.
+    // (Handles: booking in Nov for "Jan 10" stay.)
+    const oneWeekMs = 7 * 86400000;
+    if (assumed.getTime() < ref.getTime() - oneWeekMs) {
+        assumed.setFullYear(assumed.getFullYear() + 1);
+    }
+
+    return assumed;
 }
 
 /** Whole nights between check-in and check-out (nights = calendar days between dates). */
@@ -467,10 +511,12 @@ async function handleBooking(message) {
 
     const bookingDate = getBookingDateForSheet();
     if (isMockBookingDateActive()) {
+        const stayStart = deriveStayStartDate(message.checkIn, bookingDate);
+        const targetMonth = formatMonthTabTitle(stayStart ?? bookingDate);
         console.warn(
-            "[MOCK] Using shifted booking date for tab + invoice id:",
+            "[MOCK] Using shifted booking date for invoice id + booking timestamp:",
             bookingDate.toISOString(),
-            `(month tab: ${formatMonthTabTitle(bookingDate)})`,
+            `(destination month tab: ${targetMonth})`,
         );
     }
 
@@ -486,6 +532,7 @@ async function handleBooking(message) {
     const invoiceId = makeInvoiceNumber(base, bookingDate);
     const data = {
         ...base,
+        bookingDate,
         stayed: true,
         invoiceId,
     };

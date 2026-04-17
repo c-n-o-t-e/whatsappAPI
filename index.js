@@ -210,6 +210,21 @@ async function ensureMonthSheet(sheets, date) {
         requestBody: { values: [BOOKING_HEADER_ROW] },
     });
 
+    // Monthly summary (exclude cancellations: only Stayed=TRUE).
+    // Amount column = G, Stayed column = I.
+    await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        // Put it outside the booking table (B–J) to avoid append/table-range shifting.
+        range: `${q}!K1:K2`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+            values: [
+                ["Monthly total (Stayed=TRUE)"],
+                ["=SUMIFS(G:G,I:I,TRUE)"],
+            ],
+        },
+    });
+
     return title;
 }
 

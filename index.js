@@ -10,6 +10,9 @@ dotenv.config();
 
 const app = express();
 app.use(bodyParser.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use("/invoices", express.static(path.join(__dirname, "invoices")));
 
 /* =========================
    GOOGLE SHEETS SETUP
@@ -255,8 +258,7 @@ async function applyMonthSheetBranding(sheets, sheetTitle) {
                         },
                     },
                 },
-                fields:
-                    "userEnteredFormat(backgroundColor,horizontalAlignment,verticalAlignment,textFormat)",
+                fields: "userEnteredFormat(backgroundColor,horizontalAlignment,verticalAlignment,textFormat)",
             },
         },
 
@@ -301,22 +303,81 @@ async function applyMonthSheetBranding(sheets, sheetTitle) {
                         },
                     },
                 },
-                fields:
-                    "userEnteredFormat(backgroundColor,horizontalAlignment,verticalAlignment,textFormat)",
+                fields: "userEnteredFormat(backgroundColor,horizontalAlignment,verticalAlignment,textFormat)",
             },
         },
 
         // Column sizing (B–J) + summary column K.
-        { updateDimensionProperties: { range: col(1), properties: { pixelSize: 180 }, fields: "pixelSize" } }, // B Name
-        { updateDimensionProperties: { range: col(2), properties: { pixelSize: 150 }, fields: "pixelSize" } }, // C Phone
-        { updateDimensionProperties: { range: col(3), properties: { pixelSize: 110 }, fields: "pixelSize" } }, // D Room
-        { updateDimensionProperties: { range: col(4), properties: { pixelSize: 130 }, fields: "pixelSize" } }, // E Check-in
-        { updateDimensionProperties: { range: col(5), properties: { pixelSize: 130 }, fields: "pixelSize" } }, // F Check-out
-        { updateDimensionProperties: { range: col(6), properties: { pixelSize: 140 }, fields: "pixelSize" } }, // G Amount
-        { updateDimensionProperties: { range: col(7), properties: { pixelSize: 170 }, fields: "pixelSize" } }, // H Booking Date
-        { updateDimensionProperties: { range: col(8), properties: { pixelSize: 90 }, fields: "pixelSize" } }, // I Stayed
-        { updateDimensionProperties: { range: col(9), properties: { pixelSize: 260 }, fields: "pixelSize" } }, // J Invoice
-        { updateDimensionProperties: { range: col(10), properties: { pixelSize: 260 }, fields: "pixelSize" } }, // K KPI
+        {
+            updateDimensionProperties: {
+                range: col(1),
+                properties: { pixelSize: 180 },
+                fields: "pixelSize",
+            },
+        }, // B Name
+        {
+            updateDimensionProperties: {
+                range: col(2),
+                properties: { pixelSize: 150 },
+                fields: "pixelSize",
+            },
+        }, // C Phone
+        {
+            updateDimensionProperties: {
+                range: col(3),
+                properties: { pixelSize: 110 },
+                fields: "pixelSize",
+            },
+        }, // D Room
+        {
+            updateDimensionProperties: {
+                range: col(4),
+                properties: { pixelSize: 130 },
+                fields: "pixelSize",
+            },
+        }, // E Check-in
+        {
+            updateDimensionProperties: {
+                range: col(5),
+                properties: { pixelSize: 130 },
+                fields: "pixelSize",
+            },
+        }, // F Check-out
+        {
+            updateDimensionProperties: {
+                range: col(6),
+                properties: { pixelSize: 140 },
+                fields: "pixelSize",
+            },
+        }, // G Amount
+        {
+            updateDimensionProperties: {
+                range: col(7),
+                properties: { pixelSize: 170 },
+                fields: "pixelSize",
+            },
+        }, // H Booking Date
+        {
+            updateDimensionProperties: {
+                range: col(8),
+                properties: { pixelSize: 90 },
+                fields: "pixelSize",
+            },
+        }, // I Stayed
+        {
+            updateDimensionProperties: {
+                range: col(9),
+                properties: { pixelSize: 260 },
+                fields: "pixelSize",
+            },
+        }, // J Invoice
+        {
+            updateDimensionProperties: {
+                range: col(10),
+                properties: { pixelSize: 260 },
+                fields: "pixelSize",
+            },
+        }, // K KPI
 
         // Row heights for title/subtitle/divider/header.
         {
@@ -492,8 +553,7 @@ async function applyMonthSheetBranding(sheets, sheetTitle) {
                         },
                     },
                 },
-                fields:
-                    "userEnteredFormat(backgroundColor,numberFormat,horizontalAlignment,textFormat)",
+                fields: "userEnteredFormat(backgroundColor,numberFormat,horizontalAlignment,textFormat)",
             },
         },
 
@@ -698,10 +758,7 @@ async function ensureMonthSheet(sheets, date) {
         range: `${q}!B1:B2`,
         valueInputOption: "USER_ENTERED",
         requestBody: {
-            values: [
-                ["LOFTY XPHERE HOMES"],
-                [`${title} — Bookings`],
-            ],
+            values: [["LOFTY XPHERE HOMES"], [`${title} — Bookings`]],
         },
     });
 
@@ -775,7 +832,8 @@ async function appendToSheet(data) {
 
     const sheets = google.sheets({ version: "v4", auth });
 
-    const bookingDate = data.bookingDate instanceof Date ? data.bookingDate : null;
+    const bookingDate =
+        data.bookingDate instanceof Date ? data.bookingDate : null;
     const resolvedBookingDate =
         bookingDate && !Number.isNaN(bookingDate.getTime())
             ? bookingDate
@@ -1046,7 +1104,7 @@ async function handleBooking(message) {
     // Mock data (later replace with parser)
     const base = {
         name: message.name,
-        phone: message.phoneNumber,
+        phone: message.phoneNumber ?? message.phone,
         apartment: message.apartment,
         checkIn: message.checkIn,
         checkOut: message.checkOut,
@@ -1069,6 +1127,8 @@ async function handleBooking(message) {
     console.log("Saved to Google Sheets ✅");
 
     // 3. (Later) send back via WhatsApp API
+    const invoiceUrlPath = `/invoices/${path.basename(invoicePath)}`;
+    return { invoicePath: invoiceUrlPath };
 }
 
 /* =========================
@@ -1114,11 +1174,259 @@ app.post("/webhook", async (req, res) => {
     }
 });
 
+function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (c) => {
+        switch (c) {
+            case "&":
+                return "&amp;";
+            case "<":
+                return "&lt;";
+            case ">":
+                return "&gt;";
+            case '"':
+                return "&quot;";
+            case "'":
+                return "&#39;";
+            default:
+                return c;
+        }
+    });
+}
+
 /* =========================
-   TEST ROUTE (OPTIONAL)
+   SIMPLE FRONTEND (FORM)
 ========================= */
 app.get("/", (req, res) => {
-    res.send("Server running 🚀");
+    res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Create Booking</title>
+    <style>
+      :root{
+        --ink:#1F1F1F;
+        --muted:#5C5856;
+        --paper:#F6F5F3;
+        --card:#FFFFFF;
+        --border:#D8D4CF;
+        --accent:#8B2D35;
+        --shadow:0 10px 30px rgba(0,0,0,.08);
+        --radius:14px;
+      }
+      *{box-sizing:border-box}
+      body{
+        margin:0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        color:var(--ink);
+        background: radial-gradient(1200px 700px at 20% -10%, rgba(139,45,53,.12), transparent 60%),
+                    radial-gradient(900px 600px at 90% 0%, rgba(31,31,31,.08), transparent 55%),
+                    var(--paper);
+      }
+      .wrap{max-width:760px;margin:32px auto;padding:0 16px}
+      .header{
+        display:flex;gap:14px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;
+        margin-bottom:14px
+      }
+      h1{font-size:22px;line-height:1.2;margin:0}
+      .sub{margin:6px 0 0;color:var(--muted);font-size:13px}
+      .badge{
+        border:1px solid var(--border);
+        background:rgba(255,255,255,.7);
+        backdrop-filter:saturate(180%) blur(8px);
+        padding:10px 12px;border-radius:999px;font-size:12px;color:var(--muted)
+      }
+      .card{
+        background:var(--card);
+        border:1px solid var(--border);
+        border-radius:var(--radius);
+        box-shadow:var(--shadow);
+        overflow:hidden
+      }
+      .bar{height:6px;background:linear-gradient(90deg,var(--accent), #5b1c22)}
+      form{padding:18px}
+      .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+      @media (max-width: 640px){.grid{grid-template-columns:1fr}}
+      label{display:block;font-size:12px;color:var(--muted);margin:2px 0 6px}
+      input{
+        width:100%;
+        padding:12px 12px;
+        border:1px solid var(--border);
+        border-radius:12px;
+        font-size:14px;
+        outline:none;
+        background:#fff;
+      }
+      input:focus{border-color:rgba(139,45,53,.55);box-shadow:0 0 0 4px rgba(139,45,53,.12)}
+      .full{grid-column:1/-1}
+      .actions{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}
+      button{
+        appearance:none;border:0;
+        padding:12px 14px;
+        border-radius:12px;
+        background:var(--accent);
+        color:#fff;
+        font-weight:600;
+        font-size:14px;
+        cursor:pointer;
+      }
+      button:hover{filter:brightness(.98)}
+      .hint{font-size:12px;color:var(--muted);margin:0}
+      .req{color:var(--accent);font-weight:700}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="header">
+        <div>
+          <h1>Create booking</h1>
+          <p class="sub">Generates an invoice PDF and logs the booking to Google Sheets.</p>
+        </div>
+        <div class="badge">Lofty Xphere Homes</div>
+      </div>
+
+      <div class="card">
+        <div class="bar"></div>
+        <form method="POST" action="/create-booking">
+          <div class="grid">
+            <div>
+              <label for="name">Name <span class="req">*</span></label>
+              <input id="name" name="name" autocomplete="name" required />
+            </div>
+            <div>
+              <label for="phone">Phone <span class="req">*</span></label>
+              <input id="phone" name="phone" autocomplete="tel" inputmode="tel" required />
+            </div>
+            <div>
+              <label for="apartment">Room Code / Apartment <span class="req">*</span></label>
+              <input id="apartment" name="apartment" required />
+            </div>
+            <div>
+              <label for="amount">Amount (₦) <span class="req">*</span></label>
+              <input id="amount" name="amount" inputmode="numeric" placeholder="e.g. 950000" required />
+            </div>
+            <div>
+              <label for="checkIn">Check-in <span class="req">*</span></label>
+              <input id="checkIn" name="checkIn" type="date" required />
+            </div>
+            <div>
+              <label for="checkOut">Check-out <span class="req">*</span></label>
+              <input id="checkOut" name="checkOut" type="date" required />
+            </div>
+            <div class="full">
+              <p class="hint">Tip: date pickers will submit as YYYY-MM-DD (works with Google Sheets + invoice generation).</p>
+            </div>
+          </div>
+          <div class="actions">
+            <button type="submit">Create Booking</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>`);
+});
+
+app.post("/create-booking", async (req, res) => {
+    try {
+        const raw = req.body || {};
+        const name = String(raw.name ?? "").trim();
+        const phone = String(raw.phone ?? "").trim();
+        const apartment = String(raw.apartment ?? "").trim();
+        const checkIn = String(raw.checkIn ?? "").trim();
+        const checkOut = String(raw.checkOut ?? "").trim();
+        const amountRaw = String(raw.amount ?? "").trim();
+
+        const missing = [];
+        if (!name) missing.push("name");
+        if (!phone) missing.push("phone");
+        if (!apartment) missing.push("apartment");
+        if (!checkIn) missing.push("checkIn");
+        if (!checkOut) missing.push("checkOut");
+        if (!amountRaw) missing.push("amount");
+
+        if (missing.length) {
+            return res.status(400).type("html").send(`<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Missing fields</title></head>
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px;background:#F6F5F3;color:#1F1F1F">
+  <h2>Missing required fields</h2>
+  <p>Please fill: <strong>${escapeHtml(missing.join(", "))}</strong></p>
+  <p><a href="/" style="color:#8B2D35">Go back</a></p>
+</body></html>`);
+        }
+
+        const amountNumber = Number(String(amountRaw).replace(/,/g, ""));
+        if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
+            return res.status(400).type("html").send(`<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Invalid amount</title></head>
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px;background:#F6F5F3;color:#1F1F1F">
+  <h2>Invalid amount</h2>
+  <p>Amount must be a positive number.</p>
+  <p><a href="/" style="color:#8B2D35">Go back</a></p>
+</body></html>`);
+        }
+
+        const result = await handleBooking({
+            name,
+            phone,
+            apartment,
+            checkIn,
+            checkOut,
+            amount: amountNumber,
+        });
+
+        const invoicePath = result?.invoicePath;
+        if (!invoicePath) {
+            throw new Error("Invoice was generated but no invoicePath was returned.");
+        }
+
+        res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Booking Created</title>
+    <style>
+      :root{--ink:#1F1F1F;--muted:#5C5856;--paper:#F6F5F3;--card:#fff;--border:#D8D4CF;--accent:#8B2D35;--shadow:0 10px 30px rgba(0,0,0,.08);--radius:14px;}
+      *{box-sizing:border-box}
+      body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--paper);color:var(--ink)}
+      .wrap{max-width:760px;margin:32px auto;padding:0 16px}
+      .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+      .bar{height:6px;background:linear-gradient(90deg,var(--accent), #5b1c22)}
+      .content{padding:18px}
+      h2{margin:0 0 8px;font-size:20px}
+      p{margin:0 0 14px;color:var(--muted)}
+      a.btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;padding:12px 14px;border-radius:12px;font-weight:600}
+      a.link{color:var(--accent)}
+      .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="bar"></div>
+        <div class="content">
+          <h2>Booking Created ✅</h2>
+          <p>Your invoice is ready.</p>
+          <div class="row">
+            <a class="btn" href="${invoicePath}" download>Download Invoice</a>
+            <a class="link" href="/">Create another booking</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`);
+    } catch (err) {
+        console.error(err);
+        res.status(500).type("html").send(`<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Error</title></head>
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px;background:#F6F5F3;color:#1F1F1F">
+  <h2>Something went wrong</h2>
+  <p>${escapeHtml(err?.message || "Internal server error")}</p>
+  <p><a href="/" style="color:#8B2D35">Go back</a></p>
+</body></html>`);
+    }
 });
 
 app.listen(3000, () => console.log("Server running on port 3000"));

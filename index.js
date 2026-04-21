@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const dotenv = require("dotenv");
 const express = require("express");
 const { google } = require("googleapis");
@@ -128,13 +129,16 @@ function quoteSheetNameForRange(title) {
     return `'${safe}'`;
 }
 
-/** YYYYMMDD after LXH- in invoice ids → Date (local). */
+/** Date portion in invoice ids → Date (local).
+ * Format: LXH-YYMMDD-XXXXXX
+ */
 function parseDateFromInvoiceId(invoiceId) {
-    const m = String(invoiceId).match(/^LXH-(\d{4})(\d{2})(\d{2})-/i);
-    if (!m) return null;
-    const y = Number(m[1]);
-    const mo = Number(m[2]);
-    const d = Number(m[3]);
+    const s = String(invoiceId || "").trim();
+    const compact = s.match(/^LXH-(\d{2})(\d{2})(\d{2})-/i);
+    if (!compact) return null;
+    const y = 2000 + Number(compact[1]);
+    const mo = Number(compact[2]);
+    const d = Number(compact[3]);
     const dt = new Date(y, mo - 1, d);
     return Number.isNaN(dt.getTime()) ? null : dt;
 }
@@ -1005,19 +1009,28 @@ function formatNightsLabel(checkIn, checkOut) {
     return `${nights} nights`;
 }
 
+function randomInvoiceCode(length = 6) {
+    // Crockford Base32 (no I, L, O, U) and no 0/1 → easier to read over phone.
+    const alphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+    const bytes = crypto.randomBytes(length);
+    let out = "";
+    for (let i = 0; i < length; i++) {
+        out += alphabet[bytes[i] % alphabet.length];
+    }
+    return out;
+}
+
 function makeInvoiceNumber(data, referenceDate = new Date()) {
     const now =
         referenceDate instanceof Date && !Number.isNaN(referenceDate.getTime())
             ? referenceDate
             : new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    const last4 = String(data?.phone ?? "")
-        .replace(/\D/g, "")
-        .slice(-4);
-    const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-    return `LXH-${y}${m}${d}-${last4 || "GUEST"}-${rand}`;
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const code = randomInvoiceCode(6);
+    // Example: LXH-260421-7K3P9D (short, readable, still unique)
+    return `LXH-${yy}${mm}${dd}-${code}`;
 }
 
 async function generateInvoice(data) {
@@ -1152,7 +1165,7 @@ app.post("/webhook", async (req, res) => {
                 const invoiceId = parseInvoiceIdFromText(text);
                 if (!invoiceId) {
                     throw new Error(
-                        "Booking cancelled message missing invoiceId. Include something like 'Invoice ID: LXH-20260414-1234-ABCD'.",
+                        "Booking cancelled message missing invoiceId. Include something like 'Invoice ID: LXH-260414-7K3P9D'.",
                     );
                 }
                 await setStayedByInvoiceId({ invoiceId, stayed: false });
@@ -1597,7 +1610,7 @@ app.get("/cancel-booking", (req, res) => {
         <div class="bar"></div>
         <form method="POST" action="/cancel-booking">
           <label for="invoiceId">Invoice ID <span class="req">*</span></label>
-          <input id="invoiceId" name="invoiceId" placeholder="LXH-20260414-1234-ABCD" autocomplete="off" required />
+          <input id="invoiceId" name="invoiceId" placeholder="LXH-260414-7K3P9D" autocomplete="off" required />
           <p class="hint">Paste the full invoice id from the sheet or invoice PDF. You can also paste a sentence that contains the id.</p>
           <div class="actions">
             <button type="submit" data-default-label="Cancel booking" data-loading-label="Cancelling…">
@@ -1643,7 +1656,7 @@ app.post("/cancel-booking", async (req, res) => {
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Invalid invoice</title></head>
 <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px;background:#F6F5F3;color:#1F1F1F">
   <h2>Could not read invoice ID</h2>
-  <p>Enter a valid id like <code>LXH-YYYYMMDD-…</code> (or paste text that includes it).</p>
+  <p>Enter a valid id like <code>LXH-YYMMDD-XXXXXX</code> (or paste text that includes it).</p>
   <p><a href="/cancel-booking" style="color:#8B2D35">Go back</a></p>
 </body></html>`);
         }

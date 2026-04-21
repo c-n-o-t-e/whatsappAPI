@@ -1085,7 +1085,15 @@ async function generateInvoice(data) {
 
     const invoicesDir = path.join(__dirname, "invoices");
     fs.mkdirSync(invoicesDir, { recursive: true });
-    const filePath = path.join(invoicesDir, `invoice_${Date.now()}.pdf`);
+
+    const safeId = String(data?.invoiceId || "")
+        .trim()
+        .replace(/[^A-Za-z0-9-]/g, "");
+    const baseName = safeId ? `inv_${safeId}` : `inv_${randomInvoiceCode(10)}`;
+    let filePath = path.join(invoicesDir, `${baseName}.pdf`);
+    for (let i = 2; fs.existsSync(filePath); i++) {
+        filePath = path.join(invoicesDir, `${baseName}-${i}.pdf`);
+    }
 
     await page.pdf({
         path: filePath,

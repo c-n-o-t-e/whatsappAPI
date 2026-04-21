@@ -1,17 +1,17 @@
-const express = require("express");
-const bodyParser = require("body-parser");
 const fs = require("fs");
 const path = require("path");
-const puppeteer = require("puppeteer-core");
-const { google } = require("googleapis");
 const dotenv = require("dotenv");
+const express = require("express");
+const { google } = require("googleapis");
+const bodyParser = require("body-parser");
+const puppeteer = require("puppeteer-core");
 
 dotenv.config();
 
 const app = express();
+app.use(express.json());
 app.use(bodyParser.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
 app.use("/invoices", express.static(path.join(__dirname, "invoices")));
 
 /* =========================
@@ -1193,6 +1193,16 @@ function escapeHtml(value) {
     });
 }
 
+/** Accept pasted invoice id or free text containing an LXH-… id (same rules as WhatsApp cancel). */
+function resolveInvoiceIdFromFormInput(raw) {
+    const t = String(raw ?? "").trim();
+    if (!t) return null;
+    return (
+        parseInvoiceIdFromText(t) ||
+        parseInvoiceIdFromText(`Invoice ID: ${t}`)
+    );
+}
+
 /* =========================
    SIMPLE FRONTEND (FORM)
 ========================= */
@@ -1271,8 +1281,26 @@ app.get("/", (req, res) => {
         cursor:pointer;
       }
       button:hover{filter:brightness(.98)}
+      button[disabled]{opacity:.78;cursor:not-allowed}
+      .btnInner{display:inline-flex;align-items:center;gap:10px}
+      .spinner{
+        width:16px;height:16px;border-radius:999px;
+        border:2px solid rgba(255,255,255,.45);
+        border-top-color: rgba(255,255,255,1);
+        animation: spin .8s linear infinite;
+        display:none;
+      }
+      button.isLoading .spinner{display:inline-block}
+      button.isLoading .label{opacity:.95}
+      @keyframes spin{to{transform:rotate(360deg)}}
       .hint{font-size:12px;color:var(--muted);margin:0}
       .req{color:var(--accent);font-weight:700}
+      .nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+      .nav a{
+        font-size:13px;font-weight:600;text-decoration:none;color:var(--accent);
+        padding:8px 12px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.85)
+      }
+      .nav a:hover{background:var(--paper)}
     </style>
   </head>
   <body>
@@ -1281,6 +1309,10 @@ app.get("/", (req, res) => {
         <div>
           <h1>Create booking</h1>
           <p class="sub">Generates an invoice PDF and logs the booking to Google Sheets.</p>
+          <nav class="nav" aria-label="Booking tools">
+            <a href="/" aria-current="page">New booking</a>
+            <a href="/cancel-booking">Cancel booking</a>
+          </nav>
         </div>
         <div class="badge">Lofty Xphere Homes</div>
       </div>
@@ -1318,11 +1350,34 @@ app.get("/", (req, res) => {
             </div>
           </div>
           <div class="actions">
-            <button type="submit">Create Booking</button>
+            <button type="submit" data-default-label="Create Booking" data-loading-label="Processing…">
+              <span class="btnInner">
+                <span class="spinner" aria-hidden="true"></span>
+                <span class="label">Create Booking</span>
+              </span>
+            </button>
           </div>
         </form>
       </div>
     </div>
+    <script>
+      (function () {
+        var form = document.querySelector('form[action="/create-booking"]');
+        if (!form) return;
+        var btn = form.querySelector('button[type="submit"]');
+        if (!btn) return;
+
+        form.addEventListener('submit', function () {
+          if (btn.disabled) return;
+          btn.disabled = true;
+          btn.classList.add('isLoading');
+          var labelEl = btn.querySelector('.label');
+          var loading = btn.getAttribute('data-loading-label') || 'Processing…';
+          if (labelEl) labelEl.textContent = loading;
+          btn.setAttribute('aria-busy', 'true');
+        });
+      })();
+    </script>
   </body>
 </html>`);
 });
@@ -1377,7 +1432,9 @@ app.post("/create-booking", async (req, res) => {
 
         const invoicePath = result?.invoicePath;
         if (!invoicePath) {
-            throw new Error("Invoice was generated but no invoicePath was returned.");
+            throw new Error(
+                "Invoice was generated but no invoicePath was returned.",
+            );
         }
 
         res.type("html").send(`<!doctype html>
@@ -1411,6 +1468,7 @@ app.post("/create-booking", async (req, res) => {
           <div class="row">
             <a class="btn" href="${invoicePath}" download>Download Invoice</a>
             <a class="link" href="/">Create another booking</a>
+            <a class="link" href="/cancel-booking">Cancel a booking</a>
           </div>
         </div>
       </div>
@@ -1425,6 +1483,227 @@ app.post("/create-booking", async (req, res) => {
   <h2>Something went wrong</h2>
   <p>${escapeHtml(err?.message || "Internal server error")}</p>
   <p><a href="/" style="color:#8B2D35">Go back</a></p>
+</body></html>`);
+    }
+});
+
+app.get("/cancel-booking", (req, res) => {
+    res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Cancel Booking</title>
+    <style>
+      :root{
+        --ink:#1F1F1F;
+        --muted:#5C5856;
+        --paper:#F6F5F3;
+        --card:#FFFFFF;
+        --border:#D8D4CF;
+        --accent:#8B2D35;
+        --shadow:0 10px 30px rgba(0,0,0,.08);
+        --radius:14px;
+      }
+      *{box-sizing:border-box}
+      body{
+        margin:0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        color:var(--ink);
+        background: radial-gradient(1200px 700px at 20% -10%, rgba(139,45,53,.12), transparent 60%),
+                    radial-gradient(900px 600px at 90% 0%, rgba(31,31,31,.08), transparent 55%),
+                    var(--paper);
+      }
+      .wrap{max-width:760px;margin:32px auto;padding:0 16px}
+      .header{display:flex;gap:14px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px}
+      h1{font-size:22px;line-height:1.2;margin:0}
+      .sub{margin:6px 0 0;color:var(--muted);font-size:13px}
+      .badge{
+        border:1px solid var(--border);
+        background:rgba(255,255,255,.7);
+        backdrop-filter:saturate(180%) blur(8px);
+        padding:10px 12px;border-radius:999px;font-size:12px;color:var(--muted)
+      }
+      .nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+      .nav a{
+        font-size:13px;font-weight:600;text-decoration:none;color:var(--accent);
+        padding:8px 12px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.85)
+      }
+      .nav a:hover{background:var(--paper)}
+      .card{
+        background:var(--card);
+        border:1px solid var(--border);
+        border-radius:var(--radius);
+        box-shadow:var(--shadow);
+        overflow:hidden
+      }
+      .bar{height:6px;background:linear-gradient(90deg,var(--accent), #5b1c22)}
+      form{padding:18px}
+      label{display:block;font-size:12px;color:var(--muted);margin:2px 0 6px}
+      input{
+        width:100%;
+        max-width:100%;
+        padding:12px 12px;
+        border:1px solid var(--border);
+        border-radius:12px;
+        font-size:14px;
+        outline:none;
+        background:#fff;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+      input:focus{border-color:rgba(139,45,53,.55);box-shadow:0 0 0 4px rgba(139,45,53,.12)}
+      .actions{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}
+      button{
+        appearance:none;border:0;
+        padding:12px 14px;
+        border-radius:12px;
+        background:var(--accent);
+        color:#fff;
+        font-weight:600;
+        font-size:14px;
+        cursor:pointer;
+      }
+      button:hover{filter:brightness(.98)}
+      button[disabled]{opacity:.78;cursor:not-allowed}
+      .btnInner{display:inline-flex;align-items:center;gap:10px}
+      .spinner{
+        width:16px;height:16px;border-radius:999px;
+        border:2px solid rgba(255,255,255,.45);
+        border-top-color: rgba(255,255,255,1);
+        animation: spin .8s linear infinite;
+        display:none;
+      }
+      button.isLoading .spinner{display:inline-block}
+      button.isLoading .label{opacity:.95}
+      @keyframes spin{to{transform:rotate(360deg)}}
+      .hint{font-size:12px;color:var(--muted);margin:12px 0 0;line-height:1.45}
+      .req{color:var(--accent);font-weight:700}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="header">
+        <div>
+          <h1>Cancel booking</h1>
+          <p class="sub">Sets <strong>Stayed</strong> to FALSE in Google Sheets for this invoice (same as WhatsApp “booking cancelled”).</p>
+          <nav class="nav" aria-label="Booking tools">
+            <a href="/">New booking</a>
+            <a href="/cancel-booking" aria-current="page">Cancel booking</a>
+          </nav>
+        </div>
+        <div class="badge">Lofty Xphere Homes</div>
+      </div>
+      <div class="card">
+        <div class="bar"></div>
+        <form method="POST" action="/cancel-booking">
+          <label for="invoiceId">Invoice ID <span class="req">*</span></label>
+          <input id="invoiceId" name="invoiceId" placeholder="LXH-20260414-1234-ABCD" autocomplete="off" required />
+          <p class="hint">Paste the full invoice id from the sheet or invoice PDF. You can also paste a sentence that contains the id.</p>
+          <div class="actions">
+            <button type="submit" data-default-label="Cancel booking" data-loading-label="Cancelling…">
+              <span class="btnInner">
+                <span class="spinner" aria-hidden="true"></span>
+                <span class="label">Cancel booking</span>
+              </span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var form = document.querySelector('form[action="/cancel-booking"]');
+        if (!form) return;
+        var btn = form.querySelector('button[type="submit"]');
+        if (!btn) return;
+
+        form.addEventListener('submit', function () {
+          if (btn.disabled) return;
+          btn.disabled = true;
+          btn.classList.add('isLoading');
+          var labelEl = btn.querySelector('.label');
+          var loading = btn.getAttribute('data-loading-label') || 'Processing…';
+          if (labelEl) labelEl.textContent = loading;
+          btn.setAttribute('aria-busy', 'true');
+        });
+      })();
+    </script>
+  </body>
+</html>`);
+});
+
+app.post("/cancel-booking", async (req, res) => {
+    try {
+        const raw = req.body || {};
+        const invoiceInput = String(raw.invoiceId ?? "").trim();
+        const invoiceId = resolveInvoiceIdFromFormInput(invoiceInput);
+
+        if (!invoiceId) {
+            return res.status(400).type("html").send(`<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Invalid invoice</title></head>
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px;background:#F6F5F3;color:#1F1F1F">
+  <h2>Could not read invoice ID</h2>
+  <p>Enter a valid id like <code>LXH-YYYYMMDD-…</code> (or paste text that includes it).</p>
+  <p><a href="/cancel-booking" style="color:#8B2D35">Go back</a></p>
+</body></html>`);
+        }
+
+        const result = await setStayedByInvoiceId({
+            invoiceId,
+            stayed: false,
+        });
+
+        res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Booking Cancelled</title>
+    <style>
+      :root{--ink:#1F1F1F;--muted:#5C5856;--paper:#F6F5F3;--card:#fff;--border:#D8D4CF;--accent:#8B2D35;--shadow:0 10px 30px rgba(0,0,0,.08);--radius:14px;}
+      *{box-sizing:border-box}
+      body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--paper);color:var(--ink)}
+      .wrap{max-width:760px;margin:32px auto;padding:0 16px}
+      .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+      .bar{height:6px;background:linear-gradient(90deg,var(--accent), #5b1c22)}
+      .content{padding:18px}
+      h2{margin:0 0 8px;font-size:20px}
+      p{margin:0 0 10px;color:var(--muted);font-size:14px}
+      code{background:#f0eeeb;padding:2px 6px;border-radius:6px;font-size:13px}
+      a.link{color:var(--accent);font-weight:600}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="bar"></div>
+        <div class="content">
+          <h2>Booking cancelled ✅</h2>
+          <p>Invoice <code>${escapeHtml(invoiceId)}</code> — Stayed set to <strong>FALSE</strong> on sheet <strong>${escapeHtml(result.sheetTitle)}</strong> (row ${escapeHtml(String(result.rowNumber))}).</p>
+          <p><a class="link" href="/cancel-booking">Cancel another</a> · <a class="link" href="/">New booking</a></p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`);
+    } catch (err) {
+        console.error(err);
+        const status = err.statusCode || 500;
+        if (status === 404) {
+            return res.status(404).type("html").send(`<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Not found</title></head>
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px;background:#F6F5F3;color:#1F1F1F">
+  <h2>Invoice not found</h2>
+  <p>${escapeHtml(err?.message || "Invoice ID doesn't exist")}</p>
+  <p><a href="/cancel-booking" style="color:#8B2D35">Go back</a></p>
+</body></html>`);
+        }
+        res.status(500).type("html").send(`<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Error</title></head>
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px;background:#F6F5F3;color:#1F1F1F">
+  <h2>Something went wrong</h2>
+  <p>${escapeHtml(err?.message || "Internal server error")}</p>
+  <p><a href="/cancel-booking" style="color:#8B2D35">Go back</a></p>
 </body></html>`);
     }
 });
